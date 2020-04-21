@@ -86,7 +86,7 @@ char outBuffServer[ BUFFER_SIZE ];
 //Socket File descriptors
 int srvSckFd;
 int newSckFd;
-int oldSckFd;
+//int oldSckFd;
 
 //los threads de puerto serie y server
 pthread_t tsR, tsS, tSv;
@@ -105,6 +105,7 @@ bool_t  sgn_TcpSend_OK    = FALSE;
 
 //señal de Broken pipe - cliente cortado
 bool_t  sgn_TcpBrokenPipe = FALSE;
+bool_t  sgn_TcpClienteOut = FALSE;
 
 int bytesRead   = 0;
 int bytesToSend = 0;
@@ -197,10 +198,11 @@ int main(void)
 		}
 
 		//Si se desconecta el cliente TCP y me entero por las malas. . . 
-		if (sgn_TcpBrokenPipe ){ 
+		if (sgn_TcpBrokenPipe || sgn_TcpClienteOut){ 
 
 			pthread_mutex_lock (&mutexData);	
-				close(oldSckFd);
+
+				close(newSckFd);
 
 				pthread_cancel( tcR );
 				pthread_cancel( tcS );
@@ -209,6 +211,7 @@ int main(void)
 				pthread_join( tcS, NULL );
 
 				nCnxServer = 0;
+
 			pthread_mutex_unlock (&mutexData);	
 
 		}
@@ -371,13 +374,13 @@ void* thread_ServerTcp (void* message)
 		inet_ntop(AF_INET, &(clientaddr.sin_addr), ipClient, sizeof(ipClient));
 		printf  ("server:  conexion desde:  %s\n",ipClient);
 
-		sleep(0.1);
-		nCnxServer++;
-		if (nCnxServer == 1) oldSckFd = newSckFd; //copio en oldSckFd para cerrarla cuando aparezca una nueva
-		printf ("conecciones activas %d\n", nCnxServer);
+		//nCnxServer++;
+		//if (nCnxServer == 1) oldSckFd = newSckFd; //copio en oldSckFd para cerrarla cuando aparezca una nueva
+		//printf ("conecciones activas %d\n", nCnxServer);
 
 		//Si el cliente se cierra y quiere reconectarse. . . . aparecerá una segunda conexión
 		//Así que cierro la primer conexión (oldSckFd), cierro los threads y los reconecto con la segunda.
+		/*
 		if (nCnxServer == 2){ 
 			
 			close(oldSckFd);
@@ -391,22 +394,25 @@ void* thread_ServerTcp (void* message)
 
 			nCnxServer = 1;
 		}
+		*/
 
 		//Lanzo los threads (o los relanzo si hubo reconexión. . . )
 		//Atención: Si el cliente se corta antes de lanzarce los threads 
 		//la interacción del sistema con el cliente se vuelve catatónica. 
-		if (nCnxServer < 2) //solo acepto 1
-		{	
-			if( pthread_create (&tcR, NULL, thread_ClienteTcpReceive, NULL )){
-				perror( "thread_ClienteTcpReceive_create_error" );
-				exit(1);
-			}
+		//if (nCnxServer < 2) //solo acepto 1
+		//{	
 
-			if( pthread_create (&tcS, NULL, thread_ClienteTcpSend, NULL )){
-				perror( "thread_ClienteTcpSend_create_error" );
-				exit(1);
-			}
+		if( pthread_create (&tcR, NULL, thread_ClienteTcpReceive, NULL )){
+			perror( "thread_ClienteTcpReceive_create_error" );
+			exit(1);
 		}
+
+		if( pthread_create (&tcS, NULL, thread_ClienteTcpSend, NULL )){
+			perror( "thread_ClienteTcpSend_create_error" );
+			exit(1);
+		}
+
+		//}
 
 		// prueba cierre de conexion. El cliente recibira SIGPIPE.
 		/*
@@ -435,6 +441,10 @@ void* thread_ClienteTcpReceive (void* message)
 		}
 
 		pthread_mutex_lock (&mutexData);	
+
+			if (bytesRead ==  0){
+				sgn_TcpClienteOut = TRUE; 
+			}
 
 			if ( bytesRead == 10 ) //strlen(">OUT:x,y\r\n") = 10
 			{
